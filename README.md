@@ -1,8 +1,8 @@
 # Pimp My Wordlist (PMWL)
 
-A customizable wordlist generator for professional penetration testing engagements.
+A customizable wordlist generator.
 
-![Banner](assets/Banner.png)
+![Banner](assets/banner.png)
 
 ## Overview
 
