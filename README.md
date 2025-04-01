@@ -2,7 +2,7 @@
 
 A customizable wordlist generator.
 
-<img src="./banner.png" alt="Banner" width="500">
+<img src="./Banner.png" alt="Banner" width="500">
 
 ## Overview
 
