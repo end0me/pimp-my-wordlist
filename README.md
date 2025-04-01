@@ -2,7 +2,7 @@
 
 A customizable wordlist generator for professional penetration testing engagements.
 
-![Banner](https://github.com/end0me/pimp-my-wordlist/assets/banner.png)
+![Banner](assets/Banner.png)
 
 ## Overview
 
