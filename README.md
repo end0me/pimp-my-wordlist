@@ -2,7 +2,7 @@
 
 A customizable wordlist generator.
 
-![Banner](assets/Banner.png)
+![Banner](./Banner.png)
 
 ## Overview
 
