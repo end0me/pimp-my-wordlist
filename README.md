@@ -1,8 +1,10 @@
-# Pimp My Wordlist (PMWL)
+<h1 style="text-align: center;">Pimp My Wordlist (PMWL)</h1>
+
+<p style="text-align: center;">
+    <img src="./Banner.png" alt="Banner" width="500">
+</p>
 
 A customizable wordlist generator.
-
-<img src="./Banner.png" alt="Banner" width="500">
 
 ## Overview
 
