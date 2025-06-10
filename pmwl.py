@@ -325,8 +325,8 @@ def generate_wordlist(target_info, size, complexity, size_options, output_file):
             wordlist.add(f"{word}{target_info['birth_year']}")
             wordlist.add(f"{word}{target_info['birth_year'][2:]}")
         
-        # Medium and high complexity
-        if complexity in ['medium', 'high']:
+        # Medium, high and extreme complexity
+        if complexity in ['medium', 'high', 'extreme']:
             # Add common number patterns
             wordlist.add(f"{word}123")
             wordlist.add(f"{word}12345")
@@ -336,8 +336,8 @@ def generate_wordlist(target_info, size, complexity, size_options, output_file):
                 if num:
                     wordlist.add(f"{word}{num}")
         
-        # High complexity only
-        if complexity == 'high':
+        # High and extreme complexity
+        if complexity in ['high', 'extreme']:
             # Add special characters
             for char in ['!', '@', '#', '$']:
                 wordlist.add(f"{word}{char}")
@@ -353,9 +353,17 @@ def generate_wordlist(target_info, size, complexity, size_options, output_file):
             if target_info['birth_year']:
                 wordlist.add(f"{word}{target_info['birth_year']}!")
                 wordlist.add(f"{word.capitalize()}{target_info['birth_year']}$")
+
+        # Extreme complexity only
+        if complexity == 'extreme':
+            # Reverse the word and add common numbers
+            reversed_word = word[::-1]
+            wordlist.add(reversed_word)
+            for i in range(1, 10):
+                wordlist.add(f"{reversed_word}{i}")
     
     # Create simple combinations (first+last name, etc.)
-    if complexity in ['medium', 'high']:
+    if complexity in ['medium', 'high', 'extreme']:
         if target_info['first_name'] and target_info['last_name']:
             combined = f"{target_info['first_name'].lower()}{target_info['last_name'].lower()}"
             wordlist.add(combined)
@@ -372,6 +380,12 @@ def generate_wordlist(target_info, size, complexity, size_options, output_file):
                 if pet:
                     combined = f"{target_info['first_name'].lower()}{pet.lower()}"
                     wordlist.add(combined)
+
+        # Extreme complexity combinations
+        if complexity == 'extreme' and target_info['first_name'] and target_info['last_name']:
+            reversed_last = target_info['last_name'][::-1].lower()
+            combined_rev = f"{target_info['first_name'].lower()}{reversed_last}"
+            wordlist.add(combined_rev)
     
     # Determine the final size of the wordlist
     target_size = size_options[size]
