@@ -2,7 +2,87 @@
 # pmwl - Pimp My Wordlist - Custom wordlist generator
 
 import os
+import subprocess
+from dataclasses import dataclass, field
+from itertools import product
 from datetime import datetime
+
+# Complexity levels as integers for efficient comparison
+COMPLEXITY_LOW = 1
+COMPLEXITY_MEDIUM = 2
+COMPLEXITY_HIGH = 3
+COMPLEXITY_EXTREME = 4
+
+COMPLEXITY_MAP = {
+    'low': COMPLEXITY_LOW,
+    'medium': COMPLEXITY_MEDIUM,
+    'high': COMPLEXITY_HIGH,
+    'extreme': COMPLEXITY_EXTREME,
+}
+
+SIZE_DEFAULTS = {
+    'small': 500,
+    'medium': 2000,
+    'large': 10000,
+    'massive': 50000,
+}
+
+LEET_MAP = {
+    'a': ['4', '@'],
+    'e': ['3'],
+    'i': ['1'],
+    'o': ['0'],
+    's': ['$'],
+    't': ['7'],
+}
+
+SPECIAL_CHARS = ['!', '@', '#', '$']
+SEPARATORS = ['.', '_', '-']
+COMMON_SUFFIXES = ['123', '1234', '12345', '!', '!!', '@', '#']
+
+
+@dataclass
+class Config:
+    """Wordlist generation configuration."""
+    size: str = 'medium'
+    complexity: str = 'medium'
+    output_file: str = 'wordlist.txt'
+    custom_size: int = 0
+
+    @property
+    def target_size(self):
+        if self.size == 'custom':
+            return self.custom_size
+        return SIZE_DEFAULTS[self.size]
+
+    @property
+    def complexity_level(self):
+        return COMPLEXITY_MAP[self.complexity]
+
+
+@dataclass
+class TargetInfo:
+    """Target-specific information for wordlist generation."""
+    first_name: str = ''
+    middle_name: str = ''
+    last_name: str = ''
+    birth_year: str = ''
+    spouse_name: str = ''
+    pet_names: list = field(default_factory=list)
+    children_names: list = field(default_factory=list)
+    important_dates: list = field(default_factory=list)
+    hobbies_teams: list = field(default_factory=list)
+
+    def has_info(self):
+        """Check if any target information has been provided."""
+        return any(
+            (isinstance(v, str) and v) or (isinstance(v, list) and v)
+            for v in [self.first_name, self.middle_name, self.last_name,
+                      self.birth_year, self.spouse_name, self.pet_names,
+                      self.children_names, self.important_dates,
+                      self.hobbies_teams]
+        )
+
 
 def display_banner():
     """Display the ASCII art banner for the application"""
@@ -10,55 +90,36 @@ def display_banner():
  ██▓███   ██▓ ███▄ ▄███▓ ██▓███      ███▄ ▄███▓▓██   ██▓    █     █░ ▒█████   ██▀███  ▓█████▄  ██▓     ██▓  ██████ ▄▄▄█████▓
 ▓██░  ██▒▓██▒▓██▒▀█▀ ██▒▓██░  ██▒   ▓██▒▀█▀ ██▒ ▒██  ██▒   ▓█░ █ ░█░▒██▒  ██▒▓██ ▒ ██▒▒██▀ ██▌▓██▒    ▓██▒▒██    ▒ ▓  ██▒ ▓▒
 ▓██░ ██▓▒▒██▒▓██    ▓██░▓██░ ██▓▒   ▓██    ▓██░  ▒██ ██░   ▒█░ █ ░█ ▒██░  ██▒▓██ ░▄█ ▒░██   █▌▒██░    ▒██▒░ ▓██▄   ▒ ▓██░ ▒░
-▒██▄█▓▒ ▒░██░▒██    ▒██ ▒██▄█▓▒ ▒   ▒██    ▒██   ░ ▐██▓░   ░█░ █ ░█ ▒██   ██░▒██▀▀█▄  ░▓█▄   ▌▒██░    ░██░  ▒   ██▒░ ▓██▓ ░ 
-▒██▒ ░  ░░██░▒██▒   ░██▒▒██▒ ░  ░   ▒██▒   ░██▒  ░ ██▒▓░   ░░██▒██▓ ░ ████▓▒░░██▓ ▒██▒░▒████▓ ░██████▒░██░▒██████▒▒  ▒██▒ ░ 
-▒▓▒░ ░  ░░▓  ░ ▒░   ░  ░▒▓▒░ ░  ░   ░ ▒░   ░  ░   ██▒▒▒    ░ ▓░▒ ▒  ░ ▒░▒░▒░ ░ ▒▓ ░▒▓░ ▒▒▓  ▒ ░ ▒░▓  ░░▓  ▒ ▒▓▒ ▒ ░  ▒ ░░   
-░▒ ░      ▒ ░░  ░      ░░▒ ░        ░  ░      ░ ▓██ ░▒░      ▒ ░ ░    ░ ▒ ▒░   ░▒ ░ ▒░ ░ ▒  ▒ ░ ░ ▒  ░ ▒ ░░ ░▒  ░ ░    ░    
-░░        ▒ ░░      ░   ░░          ░      ░    ▒ ▒ ░░       ░   ░  ░ ░ ░ ▒    ░░   ░  ░ ░  ░   ░ ░    ▒ ░░  ░  ░    ░      
-          ░         ░                       ░    ░ ░           ░        ░ ░     ░        ░        ░  ░ ░        ░           
-                                                 ░ ░                                     ░                                   
+▒██▄█▓▒ ▒░██░▒██    ▒██ ▒██▄█▓▒ ▒   ▒██    ▒██   ░ ▐██▓░   ░█░ █ ░█ ▒██   ██░▒██▀▀█▄  ░▓█▄   ▌▒██░    ░██░  ▒   ██▒░ ▓██▓ ░
+▒██▒ ░  ░░██░▒██▒   ░██▒▒██▒ ░  ░   ▒██▒   ░██▒  ░ ██▒▓░   ░░██▒██▓ ░ ████▓▒░░██▓ ▒██▒░▒████▓ ░██████▒░██░▒██████▒▒  ▒██▒ ░
+▒▓▒░ ░  ░░▓  ░ ▒░   ░  ░▒▓▒░ ░  ░   ░ ▒░   ░  ░   ██▒▒▒    ░ ▓░▒ ▒  ░ ▒░▒░▒░ ░ ▒▓ ░▒▓░ ▒▒▓  ▒ ░ ▒░▓  ░░▓  ▒ ▒▓▒ ▒ ░  ▒ ░░
+░▒ ░      ▒ ░░  ░      ░░▒ ░        ░  ░      ░ ▓██ ░▒░      ▒ ░ ░    ░ ▒ ▒░   ░▒ ░ ▒░ ░ ▒  ▒ ░ ░ ▒  ░ ▒ ░░ ░▒  ░ ░    ░
+░░        ▒ ░░      ░   ░░          ░      ░    ▒ ▒ ░░       ░   ░  ░ ░ ░ ▒    ░░   ░  ░ ░  ░   ░ ░    ▒ ░░  ░  ░    ░
+          ░         ░                       ░    ░ ░           ░        ░ ░     ░        ░        ░  ░ ░        ░
+                                                 ░ ░                                     ░
                                               [Wordlist Generator]
     """
     print(banner)
 
+
 def clear_screen():
     """Clear the terminal screen for better readability"""
-    os.system('cls' if os.name == 'nt' else 'clear')
+    if os.name == 'nt':
+        subprocess.run('cls', shell=True, stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL)
+    else:
+        subprocess.run(['clear'], stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL)
+
 
 def main():
-    # Initialize target information dictionary
-    target_info = {
-        'first_name': '',
-        'middle_name': '',
-        'last_name': '',
-        'birth_year': '',
-        'pet_names': [],
-        'spouse_name': '',
-        'children_names': [],
-        'important_dates': [],
-        'hobbies_teams': []
-    }
-    
-    # Configure default wordlist parameters
-    wordlist_size = 'medium'
-    wordlist_complexity = 'medium'
-    output_file = 'wordlist.txt'
-    
-    # Define wordlist size options 
-    size_options = {
-        'small': 500,
-        'medium': 2000,
-        'large': 10000,
-        'massive': 50000,
-        'custom': 0
-    }
-    
-    # Display banner at startup
+    target = TargetInfo()
+    config = Config()
+
     clear_screen()
     display_banner()
     input("\nPress Enter to start...")
-    
-    # Main program loop
+
     while True:
         clear_screen()
         display_banner()
@@ -68,17 +129,18 @@ def main():
         print("3. Generate wordlist")
         print("4. View current configuration")
         print("5. Exit")
-        
+
         choice = input("\nEnter your choice (1-5): ")
-        
-        if choice == '1':
-            target_info = collect_target_info(target_info)
-        elif choice == '2':
-            wordlist_size, wordlist_complexity, output_file = configure_wordlist(size_options, wordlist_size, wordlist_complexity, output_file)
-        elif choice == '3':
-            generate_wordlist(target_info, wordlist_size, wordlist_complexity, size_options, output_file)
-        elif choice == '4':
-            view_configuration(target_info, wordlist_size, wordlist_complexity, size_options, output_file)
+
+        actions = {
+            '1': lambda: collect_target_info(target),
+            '2': lambda: configure_wordlist(config),
+            '3': lambda: generate_wordlist(target, config),
+            '4': lambda: view_configuration(target, config),
+        }
+
+        if choice in actions:
+            actions[choice]()
         elif choice == '5':
             print("Exiting program. Goodbye!")
             break
@@ -86,78 +148,72 @@ def main():
             input("Invalid choice. Press Enter to continue...")
 
 
-def collect_target_info(target_info):
+def collect_target_info(target):
     """Gather target-specific information for wordlist generation"""
     clear_screen()
     print("\n===== TARGET INFORMATION =====")
-    
-    # Collect single value fields
+
     print("\nEnter information (leave blank to skip):")
-    target_info['first_name'] = input("First Name: ")
-    target_info['middle_name'] = input("Middle Name: ")
-    target_info['last_name'] = input("Last Name: ")
-    
-    # Birth year with validation
+    target.first_name = input("First Name: ")
+    target.middle_name = input("Middle Name: ")
+    target.last_name = input("Last Name: ")
+
     while True:
         birth_year = input("Birth Year (YYYY): ")
         if birth_year == '':
             break
-        if birth_year.isdigit() and len(birth_year) == 4 and 1900 <= int(birth_year) <= datetime.now().year:
-            target_info['birth_year'] = birth_year
+        if (birth_year.isdigit() and len(birth_year) == 4
+                and 1900 <= int(birth_year) <= datetime.now().year):
+            target.birth_year = birth_year
             break
-        else:
-            print("Please enter a valid 4-digit year.")
-    
-    target_info['spouse_name'] = input("Spouse Name: ")
-    
-    # Collect multi-value fields
-    target_info['pet_names'] = collect_list_items("Pet Names")
-    target_info['children_names'] = collect_list_items("Children Names")
-    target_info['hobbies_teams'] = collect_list_items("Hobbies/Sports Teams")
-    
-    # Collect important dates
+        print("Please enter a valid 4-digit year.")
+
+    target.spouse_name = input("Spouse Name: ")
+
+    target.pet_names = collect_list_items("Pet Names")
+    target.children_names = collect_list_items("Children Names")
+    target.hobbies_teams = collect_list_items("Hobbies/Sports Teams")
+
     clear_screen()
     print("\n===== IMPORTANT DATES =====")
     print("Examples: Wedding anniversary (MM-DD), Graduation (YYYY-MM-DD)")
-    
+
     dates = []
     while True:
         date_description = input("\nDate Description (or press Enter to finish): ")
         if date_description == '':
             break
-            
         date_value = input("Date (YYYY-MM-DD or MM-DD): ")
         if date_value:
             dates.append(f"{date_description}: {date_value}")
-    
-    target_info['important_dates'] = dates
-    
+
+    target.important_dates = dates
+
     input("\nTarget information updated. Press Enter to continue...")
-    return target_info
 
 
 def collect_list_items(item_type):
     """Collect multiple related items from user input"""
     clear_screen()
     print(f"\n===== {item_type.upper()} =====")
-    
+
     items = []
     print(f"Enter {item_type.lower()} one at a time (press Enter when done):")
-    
+
     while True:
         item = input(f"Enter {item_type.lower()} item: ")
         if item == '':
             break
         items.append(item)
-    
+
     return items
 
 
-def configure_wordlist(size_options, current_size, current_complexity, current_file):
+def configure_wordlist(config):
     """Configure wordlist parameters including size and complexity"""
     clear_screen()
     print("\n===== WORDLIST CONFIGURATION =====")
-    
+
     # Size configuration
     print("\n--- WORDLIST SIZE ---")
     print("1. Small (approximately 500 words)")
@@ -165,33 +221,25 @@ def configure_wordlist(size_options, current_size, current_complexity, current_f
     print("3. Large (approximately 10000 words)")
     print("4. Massive (approximately 50000 words)")
     print("5. Custom size")
-    
+
     size_choice = input("\nSelect size option (1-5): ")
-    
-    if size_choice == '1':
-        selected_size = 'small'
-    elif size_choice == '2':
-        selected_size = 'medium'
-    elif size_choice == '3':
-        selected_size = 'large'
-    elif size_choice == '4':
-        selected_size = 'massive'
+    size_map = {'1': 'small', '2': 'medium', '3': 'large', '4': 'massive'}
+
+    if size_choice in size_map:
+        config.size = size_map[size_choice]
     elif size_choice == '5':
         try:
             custom_size = int(input("Enter custom wordlist size: "))
             if custom_size > 0:
-                size_options['custom'] = custom_size
-                selected_size = 'custom'
+                config.custom_size = custom_size
+                config.size = 'custom'
             else:
-                print("Size must be greater than 0.")
-                selected_size = current_size
+                print("Size must be greater than 0. Keeping current size.")
         except ValueError:
             print("Invalid number. Keeping current size.")
-            selected_size = current_size
     else:
         print("Invalid choice. Keeping current size.")
-        selected_size = current_size
-    
+
     # Complexity configuration
     clear_screen()
     print("\n--- WORDLIST COMPLEXITY ---")
@@ -199,235 +247,280 @@ def configure_wordlist(size_options, current_size, current_complexity, current_f
     print("2. Medium (more variations, common patterns, and simple combinations)")
     print("3. High (extensive variations, complex patterns, special characters)")
     print("4. Extreme (all of the above plus extensive combinations and permutations)")
-    
+
     complexity_choice = input("\nSelect complexity option (1-4): ")
-    
-    if complexity_choice == '1':
-        selected_complexity = 'low'
-    elif complexity_choice == '2':
-        selected_complexity = 'medium'
-    elif complexity_choice == '3':
-        selected_complexity = 'high'
-    elif complexity_choice == '4':
-        selected_complexity = 'extreme'
-    else:
-        print("Invalid choice. Keeping current complexity.")
-        selected_complexity = current_complexity
-    
+    complexity_map = {'1': 'low', '2': 'medium', '3': 'high', '4': 'extreme'}
+    config.complexity = complexity_map.get(complexity_choice, config.complexity)
+
     # Output file
     clear_screen()
     print("\n--- OUTPUT FILE ---")
-    print(f"Current output file: {current_file}")
-    
-    change = input("Change output file? (y/n): ").lower()
-    if change == 'y':
+    print(f"Current output file: {config.output_file}")
+
+    if input("Change output file? (y/n): ").lower() == 'y':
         new_file = input("Enter new filename: ")
         if new_file:
-            output_file = new_file
-            # Add .txt extension if not present
-            if not output_file.endswith('.txt'):
-                output_file += '.txt'
-        else:
-            output_file = current_file
-    else:
-        output_file = current_file
-    
+            if not new_file.endswith('.txt'):
+                new_file += '.txt'
+            config.output_file = new_file
+
     input("\nWordlist configuration updated. Press Enter to continue...")
-    return selected_size, selected_complexity, output_file
 
 
-def generate_wordlist(target_info, size, complexity, size_options, output_file):
+# --- Wordlist generation helpers ---
+
+
+def apply_leet_variants(word, complexity_level):
+    """Generate leet-speak variants with combinatorial substitutions."""
+    variants = set()
+
+    # Find positions in the word that have leet replacements
+    positions = []
+    for i, ch in enumerate(word):
+        lower_ch = ch.lower()
+        if lower_ch in LEET_MAP:
+            options = [ch]  # original character is always an option
+            if complexity_level >= COMPLEXITY_HIGH:
+                options.extend(LEET_MAP[lower_ch])
+            else:
+                options.append(LEET_MAP[lower_ch][0])
+            positions.append((i, options))
+
+    if not positions:
+        return variants
+
+    # Extreme: combinatorial substitutions (all combinations)
+    # Other levels: individual substitutions only
+    if complexity_level >= COMPLEXITY_EXTREME and len(positions) <= 6:
+        indices = [p[0] for p in positions]
+        option_lists = [p[1] for p in positions]
+        for combo in product(*option_lists):
+            chars = list(word)
+            for idx, replacement in zip(indices, combo):
+                chars[idx] = replacement
+            result = ''.join(chars)
+            if result != word:
+                variants.add(result)
+    else:
+        for i, options in positions:
+            for replacement in options[1:]:  # skip the original char
+                chars = list(word)
+                chars[i] = replacement
+                variants.add(''.join(chars))
+
+    return variants
+
+
+def extract_date_numbers(important_dates):
+    """Extract numeric portions from date entries."""
+    date_numbers = []
+    for entry in important_dates:
+        parts = entry.split(': ', 1)
+        if len(parts) > 1:
+            nums = ''.join(c for c in parts[1] if c.isdigit())
+            if nums:
+                date_numbers.append(nums)
+    return date_numbers
+
+
+def generate_wordlist(target, config):
     """Generate customized wordlist based on target information"""
     clear_screen()
     print("\n===== PIMPING YOUR WORDLIST =====")
-    
-    # Verify target information exists
-    has_info = False
-    for key, value in target_info.items():
-        if isinstance(value, str) and value:
-            has_info = True
-            break
-        elif isinstance(value, list) and value:
-            has_info = True
-            break
-    
-    if not has_info:
+
+    if not target.has_info():
         print("No target information provided.")
-        input("Please add target information before generating a wordlist. Press Enter to continue...")
+        input("Please add target information before generating a wordlist. "
+              "Press Enter to continue...")
         return
-    
+
     print("Processing target information...")
-    
-    # Generate base words from target information
+
+    level = config.complexity_level
+    birth_year = target.birth_year
+    birth_year_short = birth_year[2:] if birth_year else ''
+
+    # Build base words from target info
     base_words = []
-    
-    # Add individual items
-    for key, value in target_info.items():
-        if isinstance(value, str) and value:
-            if key == 'birth_year':
-                base_words.append(value)
-                # Add last two digits of year
-                base_words.append(value[2:])
-            else:
-                base_words.append(value.lower())
-        elif isinstance(value, list):
-            for item in value:
-                if isinstance(item, str) and item:
-                    base_words.append(item.lower())
-    
-    # Extract dates from important dates
-    date_numbers = []
-    for date_entry in target_info['important_dates']:
-        parts = date_entry.split(': ')
-        if len(parts) > 1:
-            date_part = parts[1]
-            # Extract numbers from dates
-            nums = []
-            for char in date_part:
-                if char.isdigit():
-                    nums.append(char)
-            if nums:
-                date_numbers.append(''.join(nums))
-    
+    string_fields = [target.first_name, target.middle_name,
+                     target.last_name, target.spouse_name]
+    for val in string_fields:
+        if val:
+            base_words.append(val.lower())
+
+    if birth_year:
+        base_words.append(birth_year)
+        base_words.append(birth_year_short)
+
+    for field_list in [target.pet_names, target.children_names,
+                       target.hobbies_teams]:
+        for item in field_list:
+            if item:
+                base_words.append(item.lower())
+
+    date_numbers = extract_date_numbers(target.important_dates)
+
     print("Generating password variations...")
-    
-    # Create empty set for wordlist (using set to avoid duplicates)
+
     wordlist = set()
-    
-    # Apply transformations based on complexity
+
     for word in base_words:
-        if not word:  # Skip empty strings
+        if not word:
             continue
-            
-        # Add the base word
+
+        cap = word.capitalize()
+
+        # Base word and case variants (all levels)
         wordlist.add(word)
-        
-        # Basic transformations (all complexity levels)
-        wordlist.add(word.capitalize())
+        wordlist.add(cap)
         wordlist.add(word.upper())
-        
-        # Number substitutions
-        if 'a' in word:
-            wordlist.add(word.replace('a', '4'))
-        if 'e' in word:
-            wordlist.add(word.replace('e', '3'))
-        if 'i' in word:
-            wordlist.add(word.replace('i', '1'))
-        if 'o' in word:
-            wordlist.add(word.replace('o', '0'))
-        
-        # Add numbers (1-9) to the end
-        for i in range(1, 10):
+
+        # Leet-speak variants
+        wordlist.update(apply_leet_variants(word, level))
+
+        # Suffix and prefix digits 0-9
+        for i in range(10):
             wordlist.add(f"{word}{i}")
-        
-        # Add birth year to words if available
-        if target_info['birth_year']:
-            wordlist.add(f"{word}{target_info['birth_year']}")
-            wordlist.add(f"{word}{target_info['birth_year'][2:]}")
-        
-        # Medium, high and extreme complexity
-        if complexity in ['medium', 'high', 'extreme']:
-            # Add common number patterns
-            wordlist.add(f"{word}123")
-            wordlist.add(f"{word}12345")
-            
-            # Add date numbers to words
+            wordlist.add(f"{cap}{i}")
+            wordlist.add(f"{i}{word}")
+
+        # Birth year suffixes
+        if birth_year:
+            wordlist.add(f"{word}{birth_year}")
+            wordlist.add(f"{word}{birth_year_short}")
+            wordlist.add(f"{cap}{birth_year}")
+            wordlist.add(f"{cap}{birth_year_short}")
+
+        # Medium+ complexity
+        if level >= COMPLEXITY_MEDIUM:
+            for suffix in COMMON_SUFFIXES:
+                wordlist.add(f"{word}{suffix}")
+                wordlist.add(f"{cap}{suffix}")
+
             for num in date_numbers:
-                if num:
-                    wordlist.add(f"{word}{num}")
-        
-        # High and extreme complexity
-        if complexity in ['high', 'extreme']:
-            # Add special characters
-            for char in ['!', '@', '#', '$']:
+                wordlist.add(f"{word}{num}")
+                wordlist.add(f"{cap}{num}")
+
+        # High+ complexity
+        if level >= COMPLEXITY_HIGH:
+            for char in SPECIAL_CHARS:
                 wordlist.add(f"{word}{char}")
-                wordlist.add(f"{word.capitalize()}{char}")
-            
-            # More complex substitutions
-            if 'a' in word:
-                wordlist.add(word.replace('a', '@'))
-            if 's' in word:
-                wordlist.add(word.replace('s', '$'))
-            
-            # Combinations with birth year and special chars
-            if target_info['birth_year']:
-                wordlist.add(f"{word}{target_info['birth_year']}!")
-                wordlist.add(f"{word.capitalize()}{target_info['birth_year']}$")
+                wordlist.add(f"{cap}{char}")
+                wordlist.add(f"{char}{word}")
+                wordlist.add(f"{char}{cap}")
 
-        # Extreme complexity only
-        if complexity == 'extreme':
-            # Reverse the word and add common numbers
+            if birth_year:
+                for char in SPECIAL_CHARS:
+                    wordlist.add(f"{word}{birth_year}{char}")
+                    wordlist.add(f"{cap}{birth_year}{char}")
+
+        # Extreme complexity
+        if level >= COMPLEXITY_EXTREME:
             reversed_word = word[::-1]
+            rev_cap = reversed_word.capitalize()
             wordlist.add(reversed_word)
-            for i in range(1, 10):
+            wordlist.add(rev_cap)
+            for i in range(10):
                 wordlist.add(f"{reversed_word}{i}")
-    
-    # Create simple combinations (first+last name, etc.)
-    if complexity in ['medium', 'high', 'extreme']:
-        if target_info['first_name'] and target_info['last_name']:
-            combined = f"{target_info['first_name'].lower()}{target_info['last_name'].lower()}"
-            wordlist.add(combined)
-            wordlist.add(combined.capitalize())
-            
-            # With birth year
-            if target_info['birth_year']:
-                wordlist.add(f"{combined}{target_info['birth_year']}")
-                wordlist.add(f"{combined}{target_info['birth_year'][2:]}")
-        
-        # First name + pet name
-        if target_info['first_name'] and target_info['pet_names']:
-            for pet in target_info['pet_names']:
-                if pet:
-                    combined = f"{target_info['first_name'].lower()}{pet.lower()}"
-                    wordlist.add(combined)
 
-        # Extreme complexity combinations
-        if complexity == 'extreme' and target_info['first_name'] and target_info['last_name']:
-            reversed_last = target_info['last_name'][::-1].lower()
-            combined_rev = f"{target_info['first_name'].lower()}{reversed_last}"
-            wordlist.add(combined_rev)
-    
-    # Determine the final size of the wordlist
-    target_size = size_options[size]
-    wordlist_list = list(wordlist)
-    
-    # Limit wordlist size if needed
-    if len(wordlist_list) > target_size:
-        wordlist_list = wordlist_list[:target_size]
-    
-    # Sort the wordlist
-    wordlist_list.sort()
-    
-    # Save to file
-    with open(output_file, 'w') as f:
-        for word in wordlist_list:
-            f.write(f"{word}\n")
-    
-    print(f"\nWordlist successfully generated with {len(wordlist_list)} entries.")
-    print(f"Saved to: {os.path.abspath(output_file)}")
+    # Name combinations (medium+)
+    if level >= COMPLEXITY_MEDIUM:
+        name_parts = [n.lower() for n in [target.first_name,
+                      target.middle_name, target.last_name] if n]
+
+        # All ordered pairs of name parts
+        for i, a in enumerate(name_parts):
+            for j, b in enumerate(name_parts):
+                if i != j:
+                    combined = f"{a}{b}"
+                    wordlist.add(combined)
+                    wordlist.add(combined.capitalize())
+                    # CamelCase
+                    wordlist.add(f"{a.capitalize()}{b.capitalize()}")
+                    # Separator combinations
+                    for sep in SEPARATORS:
+                        wordlist.add(f"{a}{sep}{b}")
+
+                    if birth_year:
+                        wordlist.add(f"{combined}{birth_year}")
+                        wordlist.add(f"{combined}{birth_year_short}")
+
+        # First name + pet/children/spouse combinations
+        if target.first_name:
+            fn = target.first_name.lower()
+            combo_names = (
+                [p.lower() for p in target.pet_names if p]
+                + [c.lower() for c in target.children_names if c]
+                + ([target.spouse_name.lower()] if target.spouse_name else [])
+            )
+            for name in combo_names:
+                wordlist.add(f"{fn}{name}")
+                wordlist.add(f"{name}{fn}")
+                wordlist.add(f"{fn.capitalize()}{name.capitalize()}")
+                for sep in SEPARATORS:
+                    wordlist.add(f"{fn}{sep}{name}")
+
+    # Extreme: reversed name combos
+    if level >= COMPLEXITY_EXTREME and target.first_name and target.last_name:
+        fn = target.first_name.lower()
+        ln = target.last_name.lower()
+        wordlist.add(f"{fn}{ln[::-1]}")
+        wordlist.add(f"{ln}{fn[::-1]}")
+
+    # Sort first, then truncate (fixes non-deterministic output bug)
+    target_size = config.target_size
+    total_unique = len(wordlist)
+    wordlist_sorted = sorted(wordlist)
+
+    if len(wordlist_sorted) > target_size:
+        wordlist_sorted = wordlist_sorted[:target_size]
+
+    # Bulk write
+    with open(config.output_file, 'w') as f:
+        f.write('\n'.join(wordlist_sorted) + '\n')
+
+    generated_count = len(wordlist_sorted)
+    print(f"\nWordlist generated with {generated_count} entries.")
+    if total_unique > target_size:
+        print(f"({total_unique} unique words generated; "
+              f"capped to {target_size} by size setting.)")
+    elif total_unique < target_size:
+        print(f"(Only {total_unique} unique words could be generated "
+              f"from the provided information.)")
+        print("Tip: Add more target details or increase complexity "
+              "for a larger wordlist.")
+    print(f"Saved to: {os.path.abspath(config.output_file)}")
     input("Press Enter to continue...")
 
 
-def view_configuration(target_info, size, complexity, size_options, output_file):
+def view_configuration(target, config):
     """Display current configuration and target information"""
     clear_screen()
     print("\n===== CURRENT CONFIGURATION =====")
-    
+
     print("\n--- TARGET INFORMATION ---")
-    for key, value in target_info.items():
-        if isinstance(value, str):
-            print(f"{key.replace('_', ' ').title()}: {value}")
-        elif isinstance(value, list):
-            if value:
-                print(f"{key.replace('_', ' ').title()}: {', '.join(value)}")
-            else:
-                print(f"{key.replace('_', ' ').title()}: None")
-    
+    fields = [
+        ('First Name', target.first_name),
+        ('Middle Name', target.middle_name),
+        ('Last Name', target.last_name),
+        ('Birth Year', target.birth_year),
+        ('Spouse Name', target.spouse_name),
+        ('Pet Names', target.pet_names),
+        ('Children Names', target.children_names),
+        ('Important Dates', target.important_dates),
+        ('Hobbies Teams', target.hobbies_teams),
+    ]
+    for label, value in fields:
+        if isinstance(value, list):
+            print(f"{label}: {', '.join(value) if value else 'None'}")
+        else:
+            print(f"{label}: {value if value else ''}")
+
     print("\n--- WORDLIST CONFIGURATION ---")
-    print(f"Size: {size.title()} ({size_options[size]} words)")
-    print(f"Complexity: {complexity.title()}")
-    print(f"Output file: {output_file}")
-    
+    print(f"Size: {config.size.title()} ({config.target_size} words)")
+    print(f"Complexity: {config.complexity.title()}")
+    print(f"Output file: {config.output_file}")
+
     input("\nPress Enter to continue...")
 
 
